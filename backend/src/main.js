@@ -12,7 +12,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPEN_AI_KEY,
 });
 
-app.post("/", async (req, res) => {
+app.post("/translate", async (req, res) => {
   if (!req.body.text) {
     return res.status(400).send("Text is required");
   }
