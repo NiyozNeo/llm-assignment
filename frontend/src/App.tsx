@@ -25,6 +25,8 @@ function App() {
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<BlobPart[]>([])
+  const chatRef = useRef<HTMLDivElement | null>(null)
+  const chatEndRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     return () => {
@@ -58,8 +60,8 @@ function App() {
           mr = new MediaRecorder(stream, { mimeType: m })
           selected = m
           break
-        } catch (e) {
-          console.warn('MediaRecorder init failed for', m, e)
+        } catch {
+          // ignore unsupported mime types silently
         }
       }
       if (!mr) {
@@ -71,7 +73,6 @@ function App() {
         } catch (e) {
           const msg = String(e)
           setError('Failed to start recording: ' + msg)
-          console.error('MediaRecorder failed to start', e)
           return
         }
       }
@@ -80,30 +81,20 @@ function App() {
 
       chunksRef.current = []
       mr.ondataavailable = (e) => {
-        // debug: log chunk info
-        console.log('ondataavailable', { size: e.data?.size, type: e.data?.type, chunkCount: chunksRef.current.length })
         if (e.data && e.data.size > 0) {
           chunksRef.current.push(e.data)
-          console.log('Added chunk to array, total chunks:', chunksRef.current.length)
-        } else {
-          console.warn('Empty or null chunk received')
         }
+        // silently ignore empty chunks
       }
       mr.onstop = async () => {
-        console.log('onstop triggered, chunks collected:', chunksRef.current.length)
         const blob = new Blob(chunksRef.current, { type: mr.mimeType })
-        // debug: final blob info
-        console.log('onstop final blob', { size: blob.size, type: blob.type, mimeUsed: mr.mimeType, totalChunks: chunksRef.current.length })
         setRecordedSize(blob.size)
 
         // store for preview/download
         try {
-          if (recordedUrl) {
-            URL.revokeObjectURL(recordedUrl)
-          }
-        } catch (e: unknown) {
-          // ignore revoke errors but log for visibility
-          console.warn('revokeObjectURL failed', String(e))
+          if (recordedUrl) URL.revokeObjectURL(recordedUrl)
+        } catch {
+          // ignore revoke errors silently
         }
         const url = URL.createObjectURL(blob)
         lastBlobRef.current = blob
@@ -116,9 +107,8 @@ function App() {
         stream.getTracks().forEach((t) => t.stop())
       }
       mediaRecorderRef.current = mr
-      // start with timeslice to force chunk generation every 100ms
-      mr.start(100)
-      console.log('MediaRecorder started with 100ms timeslice')
+  // start with timeslice to force chunk generation every 100ms
+  mr.start(100)
       setRecording(true)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Mic permission denied or unsupported'
@@ -168,8 +158,8 @@ function App() {
           setTtsMime(mime)
           // attempt autoplay (may be blocked by browser)
           setTimeout(() => ttsAudioRef.current?.play().catch(() => {}), 50)
-        } catch (e) {
-          console.warn('Failed to decode TTS audio', e)
+        } catch {
+          // decoding failed: ignore silently
         }
       } else {
         if (ttsUrl) {
@@ -186,127 +176,121 @@ function App() {
     }
   }
 
+  // auto-scroll chat to bottom when transcript or spanish updates
+  useEffect(() => {
+    try {
+      if (chatEndRef.current) {
+        chatEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      } else if (chatRef.current) {
+        chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }
+    } catch {
+      // ignore scrolling errors
+    }
+  }, [transcript, spanish])
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ width: '100%', maxWidth: 720, border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, boxShadow: '0 6px 24px rgba(0,0,0,0.06)' }}>
-        <h2 style={{ margin: 0, marginBottom: 12 }}>Speech to Text + Spanish Translation</h2>
-        <p style={{ color: '#6b7280', marginTop: 0, marginBottom: 16 }}>Record your voice in English. On stop, we transcribe and translate to Spanish.</p>
+    <div className="app">
+      <div className="card">
+        {loading && (
+          <div className="card-overlay" role="status" aria-live="polite">
+            <div className="loader" aria-hidden="true" />
+            <div className="overlay-label">Processing audio…</div>
+          </div>
+        )}
+        <header className="card-header">
+          <div>
+            <h1>Voice → Text • Spanish</h1>
+            <p className="muted">Record in English. We'll transcribe and translate to Spanish automatically.</p>
+          </div>
+          <div className="status">
+            {recording ? <span className="dot recording">Recording</span> : <span className="dot idle">Idle</span>}
+            {chosenMime && <div className="mime">mime: {chosenMime}</div>}
+          </div>
+        </header>
 
-        <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center' }}>
-          {!recording ? (
-            <button onClick={startRecording} disabled={loading} style={{ padding: '10px 16px', borderRadius: 8, background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}>
-              {loading ? 'Processing…' : 'Start Recording'}
-            </button>
-          ) : (
-            <button onClick={stopRecording} style={{ padding: '10px 16px', borderRadius: 8, background: '#dc2626', color: '#fff', border: 'none', cursor: 'pointer' }}>
-              Stop Recording
-            </button>
-          )}
-          {recording && <span style={{ color: '#dc2626' }}>● Recording…</span>}
-        </div>
-
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14 }}>
-            <input type="checkbox" checked={autoSend} onChange={(e) => setAutoSend(e.target.checked)} />
-            <span>Auto-send on stop</span>
-          </label>
-        </div>
-
-        {chosenMime && <div style={{ color: '#6b7280', fontSize: 13, marginBottom: 12 }}>Chosen mime: {chosenMime}</div>}
-
-        {recordedUrl && (
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>Preview Recording</label>
-            <audio src={recordedUrl} controls style={{ width: '100%', marginBottom: 8 }} />
-            <div style={{ display: 'flex', gap: 8 }}>
+        <main className="card-body">
+          <section className="left">
+            <div className="controls">
               <button
-                onClick={async () => {
-                  if (lastBlobRef.current) await sendForTranscription(lastBlobRef.current)
-                }}
+                className={`big-fab ${recording ? 'stop' : 'start'}`}
+                onClick={recording ? stopRecording : startRecording}
                 disabled={loading}
-                style={{ padding: '8px 12px', borderRadius: 8, background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}
+                title={recording ? 'Stop' : 'Start'}
               >
-                Send Recording
+                {recording ? (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z" fill="currentColor"/><path d="M19 11a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V19a1 1 0 1 0 2 0v-3.1A5 5 0 0 0 19 11z" fill="currentColor"/></svg>
+                )}
               </button>
-              <a
-                href={recordedUrl}
-                download={`recording.${lastBlobRef.current?.type.includes('webm') ? 'webm' : lastBlobRef.current?.type.includes('wav') ? 'wav' : 'webm'}`}
-                style={{ padding: '8px 12px', borderRadius: 8, background: '#6b7280', color: '#fff', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
-              >
-                Download
-              </a>
+
+              <div className="small-actions">
+                <label className="checkbox">
+                  <input type="checkbox" checked={autoSend} onChange={(e) => setAutoSend(e.target.checked)} />
+                  <span>Auto-send</span>
+                </label>
+                <button
+                  className="btn ghost"
+                  onClick={async () => {
+                    preferredMimeRef.current = 'audio/webm;codecs=opus'
+                    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop()
+                    await startRecording()
+                  }}
+                >
+                  Retry webm
+                </button>
+              </div>
             </div>
-          </div>
-        )}
 
-        {ttsUrl && (
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>TTS Audio</label>
-            <audio ref={ttsAudioRef} src={ttsUrl} controls style={{ width: '100%', marginBottom: 8 }} />
-            <a
-              href={ttsUrl}
-              download={`tts.${ttsMime?.split('/')[1] || 'wav'}`}
-              style={{ padding: '8px 12px', borderRadius: 8, background: '#6b7280', color: '#fff', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
-            >
-              Download TTS Audio
-            </a>
-          </div>
-        )}
+            <div className="preview">
+              {recordedUrl ? (
+                <>
+                  <label className="label">Preview</label>
+                  <audio src={recordedUrl} controls className="audio-player" />
+                  <div className="preview-actions">
+                    <button className="btn primary" onClick={async () => lastBlobRef.current && await sendForTranscription(lastBlobRef.current)} disabled={loading}>
+                      {loading ? <span className="btn-spinner" aria-hidden /> : 'Send'}
+                    </button>
+                    <a className="btn ghost" href={recordedUrl} download={`recording.${lastBlobRef.current?.type.includes('webm') ? 'webm' : lastBlobRef.current?.type.includes('wav') ? 'wav' : 'webm'}`}>Download</a>
+                  </div>
+                </>
+              ) : (
+                <div className="placeholder">No recording yet. Click the button to start.</div>
+              )}
+            </div>
 
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
-          {recordedSize !== null && <div style={{ color: '#6b7280', fontSize: 13 }}>Recorded size: {recordedSize} bytes</div>}
-          <button
-            onClick={async () => {
-              // force webm and restart recording to test alternative mime
-              preferredMimeRef.current = 'audio/webm;codecs=opus'
-              // restart flow
-              if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-                mediaRecorderRef.current.stop()
-              }
-              await startRecording()
-            }}
-            style={{ padding: '8px 12px', borderRadius: 8, background: '#f59e0b', color: '#fff', border: 'none', cursor: 'pointer' }}
-          >
-            Retry with webm
-          </button>
-        </div>
+            {ttsUrl && (
+              <div className="tts">
+                <label className="label">TTS</label>
+                <audio ref={ttsAudioRef} src={ttsUrl} controls className="audio-player" />
+                <a className="btn ghost" href={ttsUrl} download={`tts.${ttsMime?.split('/')[1] || 'wav'}`}>Download TTS</a>
+              </div>
+            )}
 
-        {error && (
-          <div style={{ background: '#fef2f2', color: '#991b1b', padding: 10, borderRadius: 8, marginBottom: 12 }}>
-            {error}
-          </div>
-        )}
+            {error && <div className="error">{error}</div>}
+          </section>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>Transcribed Text (English)</label>
-            <textarea
-              value={transcript}
-              readOnly
-              placeholder="Transcribed text will appear here"
-              style={{ width: '100%', minHeight: 160, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', resize: 'vertical' }}
-            />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>Translated (Spanish)</label>
-            <textarea
-              value={spanish}
-              readOnly
-              placeholder="Spanish translation will appear here"
-              style={{ width: '100%', minHeight: 160, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', resize: 'vertical' }}
-            />
-          </div>
-        </div>
+          <aside className="right">
+            <div className="chat">
+              <div className="bubble user">
+                <div className="bubble-meta">You · English</div>
+                <div className="bubble-body">{transcript || <span className="muted">Transcription will appear here</span>}</div>
+              </div>
 
-        {recordedSize !== null && (
-          <div style={{ marginTop: 12, fontSize: 14, color: '#374151' }}>
-            Recorded size: {Math.round(recordedSize / 1024)} KB
-          </div>
-        )}
+              <div className="bubble bot">
+                <div className="bubble-meta">Assistant · Spanish</div>
+                <div className="bubble-body">{spanish || <span className="muted">Translation will appear here</span>}</div>
+                {ttsUrl && <button className="btn tiny" onClick={() => ttsAudioRef.current?.play()}>Play TTS</button>}
+              </div>
+            </div>
 
-        <div style={{ marginTop: 12, fontSize: 12, color: '#6b7280' }}>
-          Uses the browser MediaRecorder API. Audio is sent to /api/transcribe when you stop.
-        </div>
+            <div className="meta">
+              {recordedSize !== null && <div className="muted">Size: {Math.round(recordedSize / 1024)} KB</div>}
+              <div className="muted small">Uses MediaRecorder; audio sent to /api/transcribe on stop.</div>
+            </div>
+          </aside>
+        </main>
       </div>
     </div>
   )
