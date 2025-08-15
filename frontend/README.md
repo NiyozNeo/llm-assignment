@@ -1,43 +1,55 @@
-# React + TypeScript + Vite
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+# Frontend (llm-assignment)
 
-Currently, two official plugins are available:
+This is the frontend for the llm-assignment project. It provides a React-based user interface for recording audio, transcribing speech, translating to Spanish, and playing back synthesized speech.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Features
+- Record audio in-browser using MediaRecorder
+- Send audio to backend for transcription and translation
+- Display English transcript and Spanish translation
+- Play and download synthesized Spanish speech
+- Error boundaries for robust error handling
+- Modern UI with Vite and TypeScript
 
-## Expanding the ESLint configuration
+## Requirements
+- Node.js >= 18
+- npm
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Setup
+1. Install dependencies:
+  ```sh
+  npm install
+  ```
+2. Start the development server:
+  ```sh
+  npm run dev
+  ```
+3. Open your browser at [http://localhost:5173](http://localhost:5173) (default Vite port)
 
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Usage
+- Click the record button to start/stop recording.
+- Preview and send your recording for transcription and translation.
+- View the transcript and translation in the chat bubbles.
+- Play or download the synthesized Spanish speech.
 
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
+## Project Structure
+- `src/App.tsx`: Main app logic and UI
+- `src/ErrorBoundary.tsx`: Error boundary for React errors
+- `src/main.tsx`: App entry point
+- `public/`: Static assets
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Environment
+- The frontend expects the backend to be running at `/api` on the same host (proxy or CORS may be needed for production).
+
+## Build
+To build for production:
+```sh
+npm run build
 ```
+The output will be in the `dist/` folder.
+
+## License
+MIT
 
 You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
 

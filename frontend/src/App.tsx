@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
+import { ErrorBoundary } from './ErrorBoundary'
 
 type PipeResponse = {
   english: string
@@ -7,7 +8,7 @@ type PipeResponse = {
   audio?: { mime: string; base64: string }
 } | { error: string }
 
-function App() {
+function AppContent() {
   const [recording, setRecording] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [spanish, setSpanish] = useState('')
@@ -296,4 +297,10 @@ function App() {
   )
 }
 
-export default App
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
+}

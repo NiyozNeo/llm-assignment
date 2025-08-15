@@ -3,6 +3,7 @@ const cors = require('cors');
 const app = express();
 const port = process.env.PORT || 3000;
 
+
 require('dotenv').config();
 const { createClient } = require('./openaiClient');
 const logger = require('./logger');
@@ -10,6 +11,13 @@ const { upload } = require('./multerConfig');
 const requestLogger = require('./middleware/requestLogger');
 const errorHandler = require('./middleware/errorHandler');
 const apiRoutesFactory = require('./routes/api');
+
+// Validate required environment variables
+if (!process.env.OPEN_AI_KEY) {
+  logger.error('Missing required environment variable: OPEN_AI_KEY');
+  console.error('FATAL: Missing required environment variable: OPEN_AI_KEY');
+  process.exit(1);
+}
 
 const cron = require('node-cron');
 const path = require('path');
