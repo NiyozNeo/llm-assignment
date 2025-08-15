@@ -16,8 +16,12 @@ function App() {
   const [autoSend, setAutoSend] = useState(true)
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
   const lastBlobRef = useRef<Blob | null>(null)
+  const [ttsUrl, setTtsUrl] = useState<string | null>(null)
+  const [ttsMime, setTtsMime] = useState<string | null>(null)
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
   const [recordedSize, setRecordedSize] = useState<number | null>(null)
   const preferredMimeRef = useRef<string | null>(null)
+  const [chosenMime, setChosenMime] = useState<string | null>(null)
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<BlobPart[]>([])
@@ -37,25 +41,59 @@ function App() {
     setSpanish('')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mimeType = preferredMimeRef.current ?? (
-        MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : MediaRecorder.isTypeSupported('audio/webm')
-            ? 'audio/webm'
-            : 'audio/wav'
-      )
+      // negotiate a working mimeType for MediaRecorder across browsers
+      const candidates = [
+        preferredMimeRef.current,
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        'audio/wav'
+      ].filter(Boolean) as string[]
 
-      const mr = new MediaRecorder(stream, { mimeType })
+      let mr: MediaRecorder | null = null
+      let selected: string | null = null
+      for (const m of candidates) {
+        try {
+          mr = new MediaRecorder(stream, { mimeType: m })
+          selected = m
+          break
+        } catch (e) {
+          console.warn('MediaRecorder init failed for', m, e)
+        }
+      }
+      if (!mr) {
+        try {
+          // try without options
+          mr = new MediaRecorder(stream)
+          const maybe = mr as unknown as { mimeType?: string }
+          selected = maybe.mimeType || null
+        } catch (e) {
+          const msg = String(e)
+          setError('Failed to start recording: ' + msg)
+          console.error('MediaRecorder failed to start', e)
+          return
+        }
+      }
+      preferredMimeRef.current = selected
+      setChosenMime(selected)
+
       chunksRef.current = []
       mr.ondataavailable = (e) => {
         // debug: log chunk info
-        console.log('ondataavailable', { size: e.data?.size, type: e.data?.type })
-        if (e.data && e.data.size > 0) chunksRef.current.push(e.data)
+        console.log('ondataavailable', { size: e.data?.size, type: e.data?.type, chunkCount: chunksRef.current.length })
+        if (e.data && e.data.size > 0) {
+          chunksRef.current.push(e.data)
+          console.log('Added chunk to array, total chunks:', chunksRef.current.length)
+        } else {
+          console.warn('Empty or null chunk received')
+        }
       }
       mr.onstop = async () => {
+        console.log('onstop triggered, chunks collected:', chunksRef.current.length)
         const blob = new Blob(chunksRef.current, { type: mr.mimeType })
         // debug: final blob info
-        console.log('onstop final blob', { size: blob.size, type: blob.type, mimeUsed: mr.mimeType })
+        console.log('onstop final blob', { size: blob.size, type: blob.type, mimeUsed: mr.mimeType, totalChunks: chunksRef.current.length })
         setRecordedSize(blob.size)
 
         // store for preview/download
@@ -78,7 +116,9 @@ function App() {
         stream.getTracks().forEach((t) => t.stop())
       }
       mediaRecorderRef.current = mr
-      mr.start()
+      // start with timeslice to force chunk generation every 100ms
+      mr.start(100)
+      console.log('MediaRecorder started with 100ms timeslice')
       setRecording(true)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Mic permission denied or unsupported'
@@ -112,6 +152,32 @@ function App() {
 
       if ('english' in data) setTranscript(data.english)
       if ('spanish' in data) setSpanish(data.spanish)
+
+      // decode and play TTS audio if provided
+      if ('audio' in data && data.audio?.base64) {
+        try {
+          const { base64, mime } = data.audio as { base64: string; mime: string }
+          const binary = atob(base64)
+          const len = binary.length
+          const bytes = new Uint8Array(len)
+          for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i)
+          const ttsBlob = new Blob([bytes], { type: mime })
+          const url = URL.createObjectURL(ttsBlob)
+          if (ttsUrl) URL.revokeObjectURL(ttsUrl)
+          setTtsUrl(url)
+          setTtsMime(mime)
+          // attempt autoplay (may be blocked by browser)
+          setTimeout(() => ttsAudioRef.current?.play().catch(() => {}), 50)
+        } catch (e) {
+          console.warn('Failed to decode TTS audio', e)
+        }
+      } else {
+        if (ttsUrl) {
+          URL.revokeObjectURL(ttsUrl)
+          setTtsUrl(null)
+          setTtsMime(null)
+        }
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to transcribe/translate'
       setError(msg)
@@ -146,6 +212,8 @@ function App() {
           </label>
         </div>
 
+        {chosenMime && <div style={{ color: '#6b7280', fontSize: 13, marginBottom: 12 }}>Chosen mime: {chosenMime}</div>}
+
         {recordedUrl && (
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>Preview Recording</label>
@@ -168,6 +236,20 @@ function App() {
                 Download
               </a>
             </div>
+          </div>
+        )}
+
+        {ttsUrl && (
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>TTS Audio</label>
+            <audio ref={ttsAudioRef} src={ttsUrl} controls style={{ width: '100%', marginBottom: 8 }} />
+            <a
+              href={ttsUrl}
+              download={`tts.${ttsMime?.split('/')[1] || 'wav'}`}
+              style={{ padding: '8px 12px', borderRadius: 8, background: '#6b7280', color: '#fff', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+            >
+              Download TTS Audio
+            </a>
           </div>
         )}
 
